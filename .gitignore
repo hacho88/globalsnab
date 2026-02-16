@@ -1,0 +1,22 @@
+# Node / JS
+**/node_modules/
+
+# Builds
+backend/dist/
+frontend/dist/
+
+# Runtime uploads (should live on server disk)
+backend/uploads/
+
+# Env files
+**/.env
+**/.env.*
+
+# Logs
+**/*.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
