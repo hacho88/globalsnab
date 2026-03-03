@@ -26,7 +26,7 @@ jobs:
             set -e
 
             PROJECT_DIR="${{ secrets.VPS_PATH }}"
-            REPO_SSH="git@github.com:hacho88/globalsnab.git"
+            REPO_HTTPS="https://github.com/hacho88/globalsnab.git"
             BRANCH="main"
 
             if [ -z "$PROJECT_DIR" ]; then
@@ -38,7 +38,7 @@ jobs:
 
             if [ ! -d "$PROJECT_DIR/.git" ]; then
               rm -rf "$PROJECT_DIR"/*
-              git clone --branch "$BRANCH" "$REPO_SSH" "$PROJECT_DIR"
+              git clone --branch "$BRANCH" "$REPO_HTTPS" "$PROJECT_DIR"
             fi
 
             cd "$PROJECT_DIR"
