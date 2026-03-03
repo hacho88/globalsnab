@@ -1,6 +1,19 @@
 <template>
-  <div class="min-h-screen flex bg-slate-900 text-slate-100">
-    <aside class="w-64 bg-slate-950 border-r border-slate-800 hidden md:flex flex-col">
+  <div class="min-h-screen flex bg-slate-900 text-slate-100 relative">
+    <div
+      v-if="isMobileMenuOpen"
+      class="fixed inset-0 bg-black/60 z-40 md:hidden"
+      @click="isMobileMenuOpen = false"
+    ></div>
+
+    <aside
+      class="bg-slate-950 border-r border-slate-800 flex flex-col z-50 md:z-auto md:static md:translate-x-0"
+      :class="[
+        'fixed inset-y-0 left-0 w-72 max-w-[85vw] transform transition-transform duration-200 ease-out',
+        isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full',
+        'md:w-64 md:transform-none',
+      ]"
+    >
       <div class="px-4 py-4 text-xl font-bold border-b border-slate-800">
         GlobalSnab
       </div>
@@ -176,7 +189,17 @@
 
     <main class="flex-1 flex flex-col">
       <header class="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/80">
-        <div class="font-semibold">Панель управления</div>
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            class="md:hidden inline-flex items-center justify-center h-9 w-9 rounded border border-slate-800 bg-slate-950 hover:bg-slate-900"
+            @click="isMobileMenuOpen = !isMobileMenuOpen"
+            aria-label="Открыть меню"
+          >
+            ☰
+          </button>
+          <div class="font-semibold">Панель управления</div>
+        </div>
         <div class="text-sm text-slate-300" v-if="auth.user">
           {{ auth.user.fullName }} ({{ auth.user.role }})
         </div>
@@ -190,11 +213,20 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted } from 'vue';
-import { RouterLink } from 'vue-router';
+import { onMounted, ref, watch } from 'vue';
+import { RouterLink, useRoute } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 
 const auth = useAuthStore();
+const isMobileMenuOpen = ref(false);
+const route = useRoute();
+
+watch(
+  () => route.fullPath,
+  () => {
+    isMobileMenuOpen.value = false;
+  }
+);
 
 onMounted(async () => {
   if (!auth.user && auth.accessToken) {
