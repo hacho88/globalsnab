@@ -1,0 +1,73 @@
+name: Deploy to Timeweb VPS
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
+          script_stop: true
+          script: |
+            set -e
+
+            PROJECT_DIR="${{ secrets.VPS_PATH }}"
+            REPO_SSH="git@github.com:hacho88/globalsnab.git"
+            BRANCH="main"
+
+            if [ -z "$PROJECT_DIR" ]; then
+              echo "VPS_PATH is empty" >&2
+              exit 1
+            fi
+
+            mkdir -p "$PROJECT_DIR"
+
+            if [ ! -d "$PROJECT_DIR/.git" ]; then
+              rm -rf "$PROJECT_DIR"/*
+              git clone --branch "$BRANCH" "$REPO_SSH" "$PROJECT_DIR"
+            fi
+
+            cd "$PROJECT_DIR"
+            git fetch origin "$BRANCH"
+            git reset --hard "origin/$BRANCH"
+
+            # Backend
+            cd "$PROJECT_DIR/backend"
+            npm ci
+            npm run build
+
+            if command -v pm2 >/dev/null 2>&1; then
+              pm2 start dist/server.js --name globalsnab-backend --update-env || pm2 restart globalsnab-backend --update-env
+              pm2 save
+            else
+              echo "pm2 is not installed on server. Install: npm i -g pm2" >&2
+              exit 1
+            fi
+
+            # Frontend
+            cd "$PROJECT_DIR/frontend"
+            npm ci
+            npm run build
+
+            # Nginx reload (optional)
+            if command -v nginx >/dev/null 2>&1; then
+              nginx -t
+              systemctl reload nginx
+            fi
+
+      - name: Done
+        run: echo "Deploy completed"
