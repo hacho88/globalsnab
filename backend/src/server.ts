@@ -7,6 +7,7 @@ import { verifyAccessToken } from './utils/jwt';
 import { emitToUser, getLastSeen, getOnlineUserIds, registerSocket, setIo, unregisterSocket } from './realtime/io';
 import { MessageModel } from './models/Message';
 import { sendPushToUser } from './utils/push';
+import { PendingCallInviteModel } from './models/PendingCallInvite';
 
 const start = async () => {
   try {
@@ -60,12 +61,32 @@ const start = async () => {
 
       registerSocket(userId, socket.id);
 
+      // If the user was offline/asleep, deliver any pending call invites (TTL).
+      PendingCallInviteModel.find({ toUserId: userId })
+        .lean()
+        .then((invites) => {
+          for (const inv of invites) {
+            socket.emit('call:incoming', {
+              fromUserId: inv.fromUserId,
+              callId: inv.callId,
+              kind: inv.kind,
+            });
+          }
+        })
+        .catch(() => {});
+
       socket.emit('presence:snapshot', {
         onlineUserIds: getOnlineUserIds(),
         lastSeen: getLastSeen(),
       });
 
       socket.on('call:invite', (data: { toUserId: string; callId: string; kind: 'audio' | 'video' }) => {
+        PendingCallInviteModel.findOneAndUpdate(
+          { toUserId: data.toUserId, callId: data.callId },
+          { toUserId: data.toUserId, callId: data.callId, fromUserId: userId, kind: data.kind },
+          { upsert: true, new: true }
+        ).catch(() => {});
+
         emitToUser(data.toUserId, 'call:incoming', {
           fromUserId: userId,
           callId: data.callId,
@@ -73,21 +94,28 @@ const start = async () => {
         });
         sendPushToUser(data.toUserId, {
           title: data.kind === 'video' ? 'Входящий видеозвонок' : 'Входящий звонок',
-          body: 'Нажми чтобы открыть приложение',
+          body: 'Нажми чтобы ответить',
           tag: 'call-' + data.callId,
-          url: '/messages',
+          url: `/calls?callId=${encodeURIComponent(data.callId)}`,
+          kind: data.kind,
+          callId: data.callId,
+          fromUserId: userId,
+          type: 'incoming_call',
         }).catch(() => {});
       });
 
       socket.on('call:accept', (data: { toUserId: string; callId: string }) => {
+        PendingCallInviteModel.deleteOne({ toUserId: userId, callId: data.callId }).catch(() => {});
         emitToUser(data.toUserId, 'call:accepted', { fromUserId: userId, callId: data.callId });
       });
 
       socket.on('call:reject', (data: { toUserId: string; callId: string }) => {
+        PendingCallInviteModel.deleteOne({ toUserId: userId, callId: data.callId }).catch(() => {});
         emitToUser(data.toUserId, 'call:rejected', { fromUserId: userId, callId: data.callId });
       });
 
       socket.on('call:hangup', (data: { toUserId: string; callId: string }) => {
+        PendingCallInviteModel.deleteOne({ toUserId: userId, callId: data.callId }).catch(() => {});
         emitToUser(data.toUserId, 'call:hangup', { fromUserId: userId, callId: data.callId });
       });
 

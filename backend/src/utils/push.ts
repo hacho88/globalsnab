@@ -13,7 +13,7 @@ const init = () => {
 
 export const sendPushToUser = async (
   userId: string,
-  payload: { title: string; body: string; tag?: string; url?: string }
+  payload: { title: string; body: string; tag?: string; url?: string; [k: string]: any }
 ) => {
   init();
   if (!initialized) return;
