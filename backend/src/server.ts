@@ -4,7 +4,9 @@ import { Server as SocketIOServer } from 'socket.io';
 import { createApp } from './app';
 import { env } from './config/env';
 import { verifyAccessToken } from './utils/jwt';
-import { emitToUser, registerSocket, setIo, unregisterSocket } from './realtime/io';
+import { emitToUser, getLastSeen, getOnlineUserIds, registerSocket, setIo, unregisterSocket } from './realtime/io';
+import { MessageModel } from './models/Message';
+import { sendPushToUser } from './utils/push';
 
 const start = async () => {
   try {
@@ -58,12 +60,23 @@ const start = async () => {
 
       registerSocket(userId, socket.id);
 
+      socket.emit('presence:snapshot', {
+        onlineUserIds: getOnlineUserIds(),
+        lastSeen: getLastSeen(),
+      });
+
       socket.on('call:invite', (data: { toUserId: string; callId: string; kind: 'audio' | 'video' }) => {
         emitToUser(data.toUserId, 'call:incoming', {
           fromUserId: userId,
           callId: data.callId,
           kind: data.kind,
         });
+        sendPushToUser(data.toUserId, {
+          title: data.kind === 'video' ? 'Входящий видеозвонок' : 'Входящий звонок',
+          body: 'Нажми чтобы открыть приложение',
+          tag: 'call-' + data.callId,
+          url: '/messages',
+        }).catch(() => {});
       });
 
       socket.on('call:accept', (data: { toUserId: string; callId: string }) => {
@@ -92,6 +105,49 @@ const start = async () => {
           callId: data.callId,
           candidate: data.candidate,
         });
+      });
+
+      socket.on('message:send', async (data: { toUserId: string; text: string }) => {
+        const toUserId = String(data?.toUserId || '').trim();
+        const text = String(data?.text || '').trim();
+        if (!toUserId || !text) return;
+
+        const conversationId = [userId, toUserId].sort().join(':');
+        const msg = await MessageModel.create({
+          conversationId,
+          fromUserId: userId,
+          toUserId,
+          text,
+        });
+
+        const payload = {
+          id: String(msg._id),
+          conversationId,
+          fromUserId: userId,
+          toUserId,
+          text,
+          createdAt: msg.createdAt,
+        };
+
+        emitToUser(toUserId, 'message:new', payload);
+        // also echo to sender for multi-device sync
+        emitToUser(userId, 'message:new', payload);
+        sendPushToUser(toUserId, {
+          title: 'Новое сообщение',
+          body: text.length > 80 ? text.slice(0, 80) + '…' : text,
+          tag: 'msg-' + conversationId,
+          url: '/messages',
+        }).catch(() => {});
+      });
+
+      socket.on('typing:start', (data: { toUserId: string }) => {
+        const toId = String(data?.toUserId || '').trim();
+        if (toId) emitToUser(toId, 'typing:start', { fromUserId: userId });
+      });
+
+      socket.on('typing:stop', (data: { toUserId: string }) => {
+        const toId = String(data?.toUserId || '').trim();
+        if (toId) emitToUser(toId, 'typing:stop', { fromUserId: userId });
       });
 
       socket.on('disconnect', () => {

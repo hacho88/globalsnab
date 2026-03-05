@@ -16,6 +16,8 @@ import { aiRouter } from './ai';
 import { salariesRouter } from './salaries';
 import { usersRouter } from './users';
 import { filesRouter } from './files';
+import { messagesRouter } from './messages';
+import { pushRouter } from './push';
 
 export const apiRouter = Router();
 
@@ -40,3 +42,5 @@ apiRouter.use('/ai', aiRouter);
 apiRouter.use('/salaries', salariesRouter);
 apiRouter.use('/users', usersRouter);
 apiRouter.use('/files', filesRouter);
+apiRouter.use('/messages', messagesRouter);
+apiRouter.use('/push', pushRouter);

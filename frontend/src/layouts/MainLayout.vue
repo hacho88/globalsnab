@@ -34,6 +34,13 @@
           Global AI
         </RouterLink>
         <RouterLink
+          to="/messages"
+          class="block px-3 py-2 rounded hover:bg-slate-800"
+          active-class="bg-sky-600 text-white"
+        >
+          💬 Сообщения
+        </RouterLink>
+        <RouterLink
           to="/invoices"
           v-if="canView('invoices')"
           class="block px-3 py-2 rounded hover:bg-slate-800"

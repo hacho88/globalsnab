@@ -18,6 +18,9 @@ export const env = {
   ocrSpaceEndpoint: process.env.OCRSPACE_ENDPOINT || 'https://api.ocr.space/parse/image',
   azureVisionEndpoint: process.env.AZURE_VISION_ENDPOINT || '',
   azureVisionApiKey: process.env.AZURE_VISION_API_KEY || '',
+  vapidPublicKey: process.env.VAPID_PUBLIC_KEY || '',
+  vapidPrivateKey: process.env.VAPID_PRIVATE_KEY || '',
+  vapidEmail: process.env.VAPID_EMAIL || 'mailto:admin@globalsnab.su',
 };
 
 if (!env.deepseekApiKey) {

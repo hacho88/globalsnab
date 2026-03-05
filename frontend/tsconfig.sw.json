@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": false,
+    "lib": ["ESNext", "WebWorker"],
+    "skipLibCheck": true,
+    "types": ["vite/client"]
+  },
+  "include": ["src/sw.ts"]
+}

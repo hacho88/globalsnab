@@ -1,6 +1,7 @@
 import { Server as SocketIOServer } from 'socket.io';
 
 const userSockets = new Map<string, Set<string>>();
+const lastSeen = new Map<string, number>();
 let io: SocketIOServer | null = null;
 
 export const setIo = (nextIo: SocketIOServer) => {
@@ -9,18 +10,30 @@ export const setIo = (nextIo: SocketIOServer) => {
 
 export const registerSocket = (userId: string, socketId: string) => {
   let set = userSockets.get(userId);
+  const wasOnline = !!set && set.size > 0;
   if (!set) {
     set = new Set();
     userSockets.set(userId, set);
   }
   set.add(socketId);
+
+  if (!wasOnline) {
+    // user becomes online
+    lastSeen.delete(userId);
+    io?.emit('presence:update', { userId, online: true });
+  }
 };
 
 export const unregisterSocket = (userId: string, socketId: string) => {
   const set = userSockets.get(userId);
   if (!set) return;
   set.delete(socketId);
-  if (set.size === 0) userSockets.delete(userId);
+  if (set.size === 0) {
+    userSockets.delete(userId);
+    const ts = Date.now();
+    lastSeen.set(userId, ts);
+    io?.emit('presence:update', { userId, online: false, lastSeen: ts });
+  }
 };
 
 export const emitToUser = (toUserId: string, event: string, payload: any) => {
@@ -30,4 +43,16 @@ export const emitToUser = (toUserId: string, event: string, payload: any) => {
   for (const sid of sockets) {
     io.to(sid).emit(event, payload);
   }
+};
+
+export const getOnlineUserIds = (): string[] => {
+  return Array.from(userSockets.keys());
+};
+
+export const getLastSeen = (): Record<string, number> => {
+  const out: Record<string, number> = {};
+  for (const [userId, ts] of lastSeen.entries()) {
+    out[userId] = ts;
+  }
+  return out;
 };

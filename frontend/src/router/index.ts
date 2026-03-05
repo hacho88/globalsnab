@@ -132,6 +132,11 @@ const routes: RouteRecordRaw[] = [
         name: 'aiAssistant',
         component: () => import('../views/ai/AiAssistantView.vue'),
       },
+      {
+        path: 'messages',
+        name: 'messages',
+        component: () => import('../views/messages/MessagesView.vue'),
+      },
     ],
   },
 ];

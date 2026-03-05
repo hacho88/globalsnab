@@ -16,6 +16,15 @@ export const getSocket = (): Socket => {
   return socket;
 };
 
+export const updateSocketAuth = (token: string | null) => {
+  if (!socket) return;
+  (socket as any).auth = token ? { token } : {};
+  if (socket.connected) {
+    socket.disconnect();
+    socket.connect();
+  }
+};
+
 export const disconnectSocket = () => {
   if (!socket) return;
   socket.disconnect();

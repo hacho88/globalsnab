@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { UserModel } from '../models/User';
-import { signAccessToken, signRefreshToken } from '../utils/jwt';
+import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
 import { authMiddleware, AuthRequest, requireRole } from '../middlewares/auth';
 
 export const authRouter = Router();
@@ -22,6 +22,15 @@ authRouter.post('/login', async (req, res) => {
   const accessToken = signAccessToken(user.id, user.role);
   const refreshToken = signRefreshToken(user.id, user.role);
 
+  // Prefer httpOnly cookie for refresh token (silent refresh)
+  res.cookie('refreshToken', refreshToken, {
+    httpOnly: true,
+    secure: true,
+    sameSite: 'lax',
+    path: '/api/v1/auth',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+  });
+
   return res.json({
     user: {
       id: user.id,
@@ -33,6 +42,48 @@ authRouter.post('/login', async (req, res) => {
     accessToken,
     refreshToken,
   });
+});
+
+authRouter.post('/refresh', async (req, res) => {
+  const cookieToken = (req as any).cookies?.refreshToken;
+  const bodyToken = (req.body as any)?.refreshToken;
+  const token = (cookieToken || bodyToken || '').toString();
+  if (!token) {
+    return res.status(401).json({ message: 'No refresh token' });
+  }
+
+  try {
+    const payload = verifyRefreshToken(token);
+    const user = await UserModel.findById(payload.sub);
+    if (!user || !user.isActive) {
+      return res.status(401).json({ message: 'Invalid refresh token' });
+    }
+
+    const accessToken = signAccessToken(user.id, user.role);
+    const nextRefreshToken = signRefreshToken(user.id, user.role);
+
+    res.cookie('refreshToken', nextRefreshToken, {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/api/v1/auth',
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+
+    return res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
+        permissions: (user as any).permissions || {},
+      },
+      accessToken,
+      refreshToken: nextRefreshToken,
+    });
+  } catch {
+    return res.status(401).json({ message: 'Invalid refresh token' });
+  }
 });
 
 authRouter.get('/me', authMiddleware, async (req: AuthRequest, res) => {

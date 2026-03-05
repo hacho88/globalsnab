@@ -8,8 +8,11 @@ export default defineConfig({
     VitePWA({
       injectRegister: 'auto',
       registerType: 'autoUpdate',
-      workbox: {
-        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      injectManifest: {
+        maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
       },
       manifest: {
         name: 'GlobalSnab ERP',

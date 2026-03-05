@@ -40,8 +40,18 @@
           class="flex items-center justify-between gap-2"
         >
           <div class="min-w-0">
-            <div class="text-xs truncate">{{ u.fullName }}</div>
+            <div class="text-xs truncate flex items-center gap-2">
+              <span
+                class="inline-block h-2 w-2 rounded-full"
+                :class="calls.isOnline(u.id) ? 'bg-emerald-400' : 'bg-slate-600'"
+                :title="calls.isOnline(u.id) ? 'В сети' : 'Не в сети'"
+              ></span>
+              <span class="truncate">{{ u.fullName }}</span>
+            </div>
             <div class="text-[10px] text-slate-400 truncate">{{ u.email }}</div>
+            <div v-if="!calls.isOnline(u.id) && calls.getLastSeenTs(u.id)" class="text-[10px] text-slate-500 truncate">
+              был(а) {{ calls.formatLastSeen(calls.getLastSeenTs(u.id)) }}
+            </div>
           </div>
           <div class="flex items-center gap-1 flex-shrink-0">
             <button

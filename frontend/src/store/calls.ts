@@ -59,6 +59,9 @@ export const useCallsStore = defineStore('calls', () => {
   const query = ref('');
   const preferMaxQuality = ref(false);
 
+  const onlineUserIds = ref<Set<string>>(new Set());
+  const lastSeen = ref<Record<string, number>>({});
+
   const incoming = ref<IncomingCall | null>(null);
   const call = ref<ActiveCall | null>(null);
 
@@ -88,6 +91,26 @@ export const useCallsStore = defineStore('calls', () => {
     if (!q) return list;
     return list.filter((u) => u.fullName.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
   });
+
+  const isOnline = (userId: string): boolean => {
+    return onlineUserIds.value.has(userId);
+  };
+
+  const getLastSeenTs = (userId: string): number | null => {
+    return typeof lastSeen.value[userId] === 'number' ? lastSeen.value[userId] : null;
+  };
+
+  const formatLastSeen = (ts: number | null): string => {
+    if (!ts) return '';
+    const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    if (diffSec < 60) return 'только что';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `${diffMin} мин назад`;
+    const diffHr = Math.floor(diffMin / 60);
+    if (diffHr < 24) return `${diffHr} ч назад`;
+    const diffDay = Math.floor(diffHr / 24);
+    return `${diffDay} д назад`;
+  };
 
   const qualityText = computed(() => {
     if (!call.value) return '';
@@ -337,6 +360,37 @@ export const useCallsStore = defineStore('calls', () => {
     localStream.value.getVideoTracks().forEach((t) => (t.enabled = !isCameraOff.value));
   };
 
+  const facingMode = ref<'user' | 'environment'>('user');
+
+  const switchCamera = async () => {
+    if (!call.value || call.value.kind !== 'video' || !pc.value) return;
+    const nextFacing = facingMode.value === 'user' ? 'environment' : 'user';
+    try {
+      const newStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: { exact: nextFacing } },
+      });
+      const newVideoTrack = newStream.getVideoTracks()[0];
+      if (!newVideoTrack) return;
+
+      const sender = pc.value.getSenders().find((s) => s.track?.kind === 'video');
+      if (sender) await sender.replaceTrack(newVideoTrack);
+
+      if (localStream.value) {
+        localStream.value.getVideoTracks().forEach((t) => {
+          t.stop();
+          localStream.value!.removeTrack(t);
+        });
+        localStream.value.addTrack(newVideoTrack);
+      } else {
+        localStream.value = new MediaStream([newVideoTrack]);
+      }
+      facingMode.value = nextFacing;
+    } catch {
+      // device may not support exact facingMode — ignore silently
+    }
+  };
+
   const startCall = async (u: UserRow, kind: CallKind) => {
     if (call.value || incoming.value) return;
     const callId = makeId();
@@ -453,6 +507,28 @@ export const useCallsStore = defineStore('calls', () => {
     sock.off('webrtc:answer');
     sock.off('webrtc:ice');
     sock.off('file:incoming');
+    sock.off('presence:snapshot');
+    sock.off('presence:update');
+
+    sock.on('presence:snapshot', (data: { onlineUserIds: string[]; lastSeen: Record<string, number> }) => {
+      onlineUserIds.value = new Set(data.onlineUserIds || []);
+      lastSeen.value = data.lastSeen || {};
+    });
+
+    sock.on('presence:update', (data: { userId: string; online: boolean; lastSeen?: number }) => {
+      if (!data?.userId) return;
+      if (data.online) {
+        onlineUserIds.value.add(data.userId);
+        const copy = { ...lastSeen.value };
+        delete copy[data.userId];
+        lastSeen.value = copy;
+      } else {
+        onlineUserIds.value.delete(data.userId);
+        if (typeof data.lastSeen === 'number') {
+          lastSeen.value = { ...lastSeen.value, [data.userId]: data.lastSeen };
+        }
+      }
+    });
 
     sock.on('call:incoming', (data: { fromUserId: string; callId: string; kind: CallKind }) => {
       if (call.value || incoming.value) {
@@ -552,6 +628,11 @@ export const useCallsStore = defineStore('calls', () => {
     users,
     query,
     preferMaxQuality,
+    onlineUserIds,
+    lastSeen,
+    isOnline,
+    getLastSeenTs,
+    formatLastSeen,
     incoming,
     call,
     incomingFile,
@@ -573,6 +654,8 @@ export const useCallsStore = defineStore('calls', () => {
     hangup,
     toggleMute,
     toggleCamera,
+    switchCamera,
+    facingMode,
     sendFile,
     dismissIncomingFile,
     downloadIncomingFile,
