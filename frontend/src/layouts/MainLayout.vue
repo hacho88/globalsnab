@@ -1,5 +1,6 @@
 <template>
   <div class="min-h-screen flex bg-slate-900 text-slate-100 relative">
+    <CallOverlay />
     <div
       v-if="isMobileMenuOpen"
       class="fixed inset-0 bg-black/60 z-40 md:hidden"
@@ -218,6 +219,7 @@
 import { onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
 import CallsSidebar from '../components/CallsSidebar.vue';
+import CallOverlay from '../components/CallOverlay.vue';
 import { useAuthStore } from '../store/auth';
 
 const auth = useAuthStore();
