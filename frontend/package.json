@@ -12,6 +12,7 @@
     "@picovoice/web-voice-processor": "^4.0.9",
     "axios": "^1.7.0",
     "pinia": "^2.1.7",
+    "socket.io-client": "^4.8.1",
     "vue": "^3.5.0",
     "vue-router": "^4.4.0"
   },

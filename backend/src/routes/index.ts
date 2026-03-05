@@ -14,6 +14,8 @@ import { checksRouter } from './checks';
 import { clientsRouter } from './clients';
 import { aiRouter } from './ai';
 import { salariesRouter } from './salaries';
+import { usersRouter } from './users';
+import { filesRouter } from './files';
 
 export const apiRouter = Router();
 
@@ -36,3 +38,5 @@ apiRouter.use('/checks', checksRouter);
 apiRouter.use('/clients', clientsRouter);
 apiRouter.use('/ai', aiRouter);
 apiRouter.use('/salaries', salariesRouter);
+apiRouter.use('/users', usersRouter);
+apiRouter.use('/files', filesRouter);

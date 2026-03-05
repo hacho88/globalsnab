@@ -175,6 +175,8 @@
         >
           📚 Архив накладных
         </RouterLink>
+
+        <CallsSidebar />
       </nav>
       <div class="p-4 border-t border-slate-800 text-xs text-slate-400 flex items-center justify-between">
         <span>GlobalSnab ERP</span>
@@ -215,6 +217,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
+import CallsSidebar from '../components/CallsSidebar.vue';
 import { useAuthStore } from '../store/auth';
 
 const auth = useAuthStore();
