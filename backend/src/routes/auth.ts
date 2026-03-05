@@ -22,10 +22,12 @@ authRouter.post('/login', async (req, res) => {
   const accessToken = signAccessToken(user.id, user.role);
   const refreshToken = signRefreshToken(user.id, user.role);
 
+  const secureCookie = process.env.NODE_ENV === 'production';
+
   // Prefer httpOnly cookie for refresh token (silent refresh)
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
-    secure: true,
+    secure: secureCookie,
     sameSite: 'lax',
     path: '/api/v1/auth',
     maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -62,9 +64,11 @@ authRouter.post('/refresh', async (req, res) => {
     const accessToken = signAccessToken(user.id, user.role);
     const nextRefreshToken = signRefreshToken(user.id, user.role);
 
+    const secureCookie = process.env.NODE_ENV === 'production';
+
     res.cookie('refreshToken', nextRefreshToken, {
       httpOnly: true,
-      secure: true,
+      secure: secureCookie,
       sameSite: 'lax',
       path: '/api/v1/auth',
       maxAge: 7 * 24 * 60 * 60 * 1000,

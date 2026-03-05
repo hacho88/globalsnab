@@ -33,6 +33,10 @@
       </div>
 
       <div v-if="calls.isLoading" class="text-xs text-slate-400">Загрузка...</div>
+      <div v-else-if="calls.error" class="text-xs text-red-300">{{ calls.error }}</div>
+      <div v-else-if="calls.filteredUsers.length === 0" class="text-xs text-slate-400">
+        Нет пользователей
+      </div>
       <div v-else class="space-y-2 max-h-56 overflow-auto pr-1">
         <div
           v-for="u in calls.filteredUsers"
@@ -140,6 +144,10 @@ const isOpen = computed({
   set: (v) => (calls.isOpen = v),
 });
 
+onMounted(async () => {
+  await calls.init();
+});
+
 watch(
   () => calls.isOpen,
   async (open) => {
@@ -148,8 +156,4 @@ watch(
     }
   }
 );
-
-onMounted(async () => {
-  await calls.init();
-});
 </script>
