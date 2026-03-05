@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import axios from 'axios';
 import { getSocket } from '../realtime/socket';
 
@@ -57,7 +57,8 @@ export const useCallsStore = defineStore('calls', () => {
 
   const users = ref<UserRow[]>([]);
   const query = ref('');
-  const preferMaxQuality = ref(false);
+  const preferMaxQuality = ref(true);
+  const preferUltraQuality = ref(false);
 
   const onlineUserIds = ref<Set<string>>(new Set());
   const lastSeen = ref<Record<string, number>>({});
@@ -75,6 +76,27 @@ export const useCallsStore = defineStore('calls', () => {
 
   const isMuted = ref(false);
   const isCameraOff = ref(false);
+
+  const ringtonePreset = ref<'classic' | 'soft' | 'digital'>(
+    (localStorage.getItem('ringtonePreset') as any) || 'classic'
+  );
+  const ringtoneVolume = ref<number>(Number(localStorage.getItem('ringtoneVolume') || '0.35'));
+
+  watch(ringtonePreset, (v) => {
+    localStorage.setItem('ringtonePreset', v);
+  });
+
+  watch(ringtoneVolume, (v) => {
+    localStorage.setItem('ringtoneVolume', String(v));
+  });
+
+  const setRingtonePreset = (v: 'classic' | 'soft' | 'digital') => {
+    ringtonePreset.value = v;
+  };
+
+  const setRingtoneVolume = (v: number) => {
+    ringtoneVolume.value = Math.min(1, Math.max(0, Number(v) || 0));
+  };
 
   const lastStats = ref<{ bitrateKbps?: number; rttMs?: number; packetsLost?: number } | null>(null);
   let statsTimer: number | null = null;
@@ -94,6 +116,33 @@ export const useCallsStore = defineStore('calls', () => {
 
   const isOnline = (userId: string): boolean => {
     return onlineUserIds.value.has(userId);
+  };
+
+  const applySenderQuality = async (kind: CallKind) => {
+    if (!pc.value) return;
+    const senders = pc.value.getSenders();
+
+    const videoMaxBps = preferUltraQuality.value ? 12_000_000 : preferMaxQuality.value ? 3_500_000 : 1_800_000;
+    const audioMaxBps = preferUltraQuality.value ? 128_000 : preferMaxQuality.value ? 96_000 : 64_000;
+
+    for (const s of senders) {
+      if (!s.track) continue;
+      try {
+        const p = s.getParameters();
+        p.encodings = p.encodings && p.encodings.length ? p.encodings : [{}];
+
+        if (s.track.kind === 'video' && kind === 'video') {
+          (p.encodings[0] as any).maxBitrate = videoMaxBps;
+          (p as any).degradationPreference = 'maintain-framerate';
+        }
+        if (s.track.kind === 'audio') {
+          (p.encodings[0] as any).maxBitrate = audioMaxBps;
+        }
+        await s.setParameters(p);
+      } catch {
+        // some browsers may reject setParameters — ignore
+      }
+    }
   };
 
   const getLastSeenTs = (userId: string): number | null => {
@@ -172,17 +221,23 @@ export const useCallsStore = defineStore('calls', () => {
     const video =
       !wantVideo
         ? false
-        : preferMaxQuality.value
+        : preferUltraQuality.value
           ? {
-              width: { ideal: 3840 },
-              height: { ideal: 2160 },
-              frameRate: { ideal: 30, max: 60 },
-            }
-          : {
-              width: { ideal: 1280 },
-              height: { ideal: 720 },
+              width: { ideal: 7680 },
+              height: { ideal: 4320 },
               frameRate: { ideal: 30, max: 30 },
-            };
+            }
+          : preferMaxQuality.value
+            ? {
+                width: { ideal: 1920 },
+                height: { ideal: 1080 },
+                frameRate: { ideal: 30, max: 60 },
+              }
+            : {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                frameRate: { ideal: 30, max: 30 },
+              };
 
     return {
       audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -194,23 +249,55 @@ export const useCallsStore = defineStore('calls', () => {
     try {
       if (ringCtx) return;
       ringCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
-      ringOsc = ringCtx.createOscillator();
       ringGain = ringCtx.createGain();
-      ringOsc.type = 'sine';
-      ringOsc.frequency.value = 440;
       ringGain.gain.value = 0;
-      ringOsc.connect(ringGain);
       ringGain.connect(ringCtx.destination);
-      ringOsc.start();
 
-      let on = false;
-      const tick = () => {
+      // Two-tone ringtone presets (WhatsApp/Telegram-style), no external assets.
+      const oscA = ringCtx.createOscillator();
+      const oscB = ringCtx.createOscillator();
+      oscA.type = ringtonePreset.value === 'soft' ? 'triangle' : 'sine';
+      oscB.type = ringtonePreset.value === 'digital' ? 'square' : 'sine';
+      oscA.connect(ringGain);
+      oscB.connect(ringGain);
+      oscA.start();
+      oscB.start();
+      ringOsc = oscA;
+      (ringGain as any)._ringOscB = oscB;
+
+      const volume = Math.min(1, Math.max(0, ringtoneVolume.value || 0));
+
+      const applyPreset = () => {
         if (!ringCtx || !ringGain) return;
-        on = !on;
-        ringGain.gain.setTargetAtTime(on ? 0.12 : 0.0, ringCtx.currentTime, 0.01);
+        const t = ringCtx.currentTime;
+        // Envelope: short attack/release to avoid clicks.
+        const on = (dur: number) => {
+          ringGain!.gain.cancelScheduledValues(t);
+          ringGain!.gain.setValueAtTime(0, t);
+          ringGain!.gain.linearRampToValueAtTime(volume, t + 0.02);
+          ringGain!.gain.setTargetAtTime(0, t + dur, 0.03);
+        };
+
+        if (ringtonePreset.value === 'classic') {
+          // “ti-ti ... ti-ti”
+          oscA.frequency.setValueAtTime(440, t);
+          oscB.frequency.setValueAtTime(494, t);
+          on(0.18);
+        } else if (ringtonePreset.value === 'soft') {
+          // “doo ... doo”
+          oscA.frequency.setValueAtTime(523.25, t);
+          oscB.frequency.setValueAtTime(659.25, t);
+          on(0.28);
+        } else {
+          // “beep-beep” digital
+          oscA.frequency.setValueAtTime(784, t);
+          oscB.frequency.setValueAtTime(988, t);
+          on(0.12);
+        }
       };
-      tick();
-      const id = window.setInterval(tick, 600);
+
+      applyPreset();
+      const id = window.setInterval(applyPreset, ringtonePreset.value === 'soft' ? 900 : 650);
       (ringGain as any)._ringIntervalId = id;
     } catch {
       return;
@@ -224,6 +311,14 @@ export const useCallsStore = defineStore('calls', () => {
       }
       ringOsc?.stop();
       ringOsc?.disconnect();
+      if (ringGain && (ringGain as any)._ringOscB) {
+        try {
+          (ringGain as any)._ringOscB.stop();
+          (ringGain as any)._ringOscB.disconnect();
+        } catch {
+          // ignore
+        }
+      }
       ringGain?.disconnect();
       ringCtx?.close();
     } catch {
@@ -328,7 +423,17 @@ export const useCallsStore = defineStore('calls', () => {
       remoteStream.value.addTrack(ev.track);
     };
 
-    const stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(kind));
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(kind));
+    } catch (e) {
+      if (preferUltraQuality.value && kind === 'video') {
+        preferUltraQuality.value = false;
+        stream = await navigator.mediaDevices.getUserMedia(getMediaConstraints(kind));
+      } else {
+        throw e;
+      }
+    }
     localStream.value = stream;
     for (const track of stream.getTracks()) {
       peer.addTrack(track, stream);
@@ -336,6 +441,7 @@ export const useCallsStore = defineStore('calls', () => {
 
     pc.value = peer;
     startStats();
+    await applySenderQuality(kind);
     return peer;
   };
 
@@ -628,11 +734,13 @@ export const useCallsStore = defineStore('calls', () => {
     users,
     query,
     preferMaxQuality,
+    preferUltraQuality,
     onlineUserIds,
     lastSeen,
     isOnline,
     getLastSeenTs,
     formatLastSeen,
+    refreshUsers,
     incoming,
     call,
     incomingFile,
@@ -645,9 +753,11 @@ export const useCallsStore = defineStore('calls', () => {
     remoteStream,
     isMuted,
     isCameraOff,
-    formatBytes,
-    refreshUsers,
-    init,
+    ringtonePreset,
+    ringtoneVolume,
+    setRingtonePreset,
+    setRingtoneVolume,
+    facingMode,
     startCall,
     acceptIncoming,
     rejectIncoming,
@@ -655,9 +765,9 @@ export const useCallsStore = defineStore('calls', () => {
     toggleMute,
     toggleCamera,
     switchCamera,
-    facingMode,
     sendFile,
     dismissIncomingFile,
     downloadIncomingFile,
+    init,
   };
 });

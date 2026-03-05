@@ -32,6 +32,42 @@
           <input type="checkbox" v-model="calls.preferMaxQuality" />
           Макс качество
         </label>
+        <label class="flex items-center gap-2 text-xs text-slate-300 select-none">
+          <input type="checkbox" v-model="calls.preferUltraQuality" />
+          8K (эксперимент)
+        </label>
+      </div>
+
+      <div v-if="calls.preferUltraQuality" class="text-xs text-slate-500 mb-4">
+        8K доступно не на всех устройствах. Если камера/браузер не поддерживает — автоматически включится 1080p.
+      </div>
+
+      <div class="flex flex-col md:flex-row md:items-center gap-3 mb-4">
+        <div class="flex items-center gap-2">
+          <div class="text-xs text-slate-400">Рингтон</div>
+          <select
+            class="px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-slate-100 text-sm"
+            :value="calls.ringtonePreset"
+            @change="calls.setRingtonePreset(($event.target as HTMLSelectElement).value as any)"
+          >
+            <option value="classic">Classic</option>
+            <option value="soft">Soft</option>
+            <option value="digital">Digital</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-2 flex-1">
+          <div class="text-xs text-slate-400 whitespace-nowrap">Громкость</div>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.01"
+            class="w-full"
+            :value="calls.ringtoneVolume"
+            @input="calls.setRingtoneVolume(Number(($event.target as HTMLInputElement).value))"
+          />
+        </div>
       </div>
 
       <div v-if="calls.isLoading" class="text-sm text-slate-400">Загрузка...</div>
