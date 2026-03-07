@@ -20,7 +20,7 @@ const PendingCallInviteSchema = new Schema<IPendingCallInvite>(
 );
 
 // auto-expire pending invites (seconds)
-PendingCallInviteSchema.index({ createdAt: 1 }, { expireAfterSeconds: 90 });
+PendingCallInviteSchema.index({ createdAt: 1 }, { expireAfterSeconds: 18000 });
 PendingCallInviteSchema.index({ toUserId: 1, callId: 1 }, { unique: true });
 
 export const PendingCallInviteModel = mongoose.model<IPendingCallInvite>(

@@ -33,7 +33,25 @@ self.addEventListener('push', (event: PushEvent) => {
       kind: data.kind,
     },
   } as any;
-  event.waitUntil(self.registration.showNotification(title, options));
+  const show = self.registration.showNotification(title, options);
+  const notifyOpenClients = isIncomingCall
+    ? self.clients
+        .matchAll({ type: 'window', includeUncontrolled: true })
+        .then((clients) => {
+          for (const c of clients) {
+            (c as any).postMessage({
+              type: 'call:incoming',
+              fromUserId: data.fromUserId,
+              callId: data.callId,
+              kind: data.kind,
+              url,
+            });
+          }
+        })
+        .catch(() => {})
+    : Promise.resolve();
+
+  event.waitUntil(Promise.all([show, notifyOpenClients]));
 });
 
 self.addEventListener('notificationclick', (event: NotificationEvent) => {

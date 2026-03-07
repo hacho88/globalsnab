@@ -43,7 +43,7 @@ export type IncomingFile = {
 };
 
 const makeId = () => {
-  const anyCrypto = crypto as any;
+  const anyCrypto = (globalThis as any)?.crypto as any;
   return typeof anyCrypto?.randomUUID === 'function'
     ? anyCrypto.randomUUID()
     : String(Date.now()) + '-' + Math.random().toString(16).slice(2);
@@ -58,7 +58,7 @@ export const useCallsStore = defineStore('calls', () => {
   const users = ref<UserRow[]>([]);
   const query = ref('');
   const preferMaxQuality = ref(true);
-  const preferUltraQuality = ref(false);
+  const preferUltraQuality = ref(true);
 
   const onlineUserIds = ref<Set<string>>(new Set());
   const lastSeen = ref<Record<string, number>>({});
@@ -106,6 +106,7 @@ export const useCallsStore = defineStore('calls', () => {
   let ringGain: GainNode | null = null;
 
   const sock = getSocket();
+  let swBound = false;
 
   const filteredUsers = computed(() => {
     const q = query.value.trim().toLowerCase();
@@ -511,9 +512,14 @@ export const useCallsStore = defineStore('calls', () => {
     };
 
     try {
-      await createPeer(kind);
       sock.emit('call:invite', { toUserId: u.id, callId, kind });
+      await createPeer(kind);
     } catch (e: any) {
+      try {
+        sock.emit('call:hangup', { toUserId: u.id, callId });
+      } catch {
+        // ignore
+      }
       error.value = e?.message || 'Не удалось получить доступ к микрофону/камере';
       call.value = null;
       cleanupCall();
@@ -721,6 +727,24 @@ export const useCallsStore = defineStore('calls', () => {
 
   const init = async () => {
     bindSocketEvents();
+    if (!swBound && typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      swBound = true;
+      navigator.serviceWorker.addEventListener('message', (event: MessageEvent) => {
+        const data: any = event.data;
+        if (data?.type !== 'call:incoming') return;
+        if (!data?.fromUserId || !data?.callId) return;
+        if (call.value || incoming.value) return;
+
+        incoming.value = {
+          fromUserId: String(data.fromUserId),
+          callId: String(data.callId),
+          kind: (data.kind as CallKind) || 'audio',
+          fromName: getUserName(String(data.fromUserId)),
+        };
+
+        startRinging();
+      });
+    }
     if (!users.value.length) {
       await refreshUsers();
     }

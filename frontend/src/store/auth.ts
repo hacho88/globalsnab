@@ -16,6 +16,22 @@ interface AuthState {
   accessToken: string | null;
 }
 
+let refreshTimer: number | null = null;
+
+const getJwtExpMs = (token: string): number | null => {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const payloadJson = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'));
+    const payload = JSON.parse(payloadJson);
+    const expSec = Number(payload?.exp);
+    if (!Number.isFinite(expSec) || expSec <= 0) return null;
+    return expSec * 1000;
+  } catch {
+    return null;
+  }
+};
+
 export const useAuthStore = defineStore('auth', {
   state: (): AuthState => ({
     user: null,
@@ -27,10 +43,25 @@ export const useAuthStore = defineStore('auth', {
   actions: {
     setAccessToken(token: string | null) {
       this.accessToken = token;
+
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
+
       if (token) {
         localStorage.setItem('accessToken', token);
         axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
         updateSocketAuth(token);
+
+        const expMs = getJwtExpMs(token);
+        if (expMs) {
+          const delay = Math.max(5_000, expMs - Date.now() - 60_000);
+          const self = this;
+          refreshTimer = window.setTimeout(() => {
+            self.refresh().catch(() => {});
+          }, delay);
+        }
       } else {
         localStorage.removeItem('accessToken');
         delete axios.defaults.headers.common['Authorization'];
