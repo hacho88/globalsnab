@@ -102,9 +102,6 @@
 
       <!-- Позиции чека -->
       <div class="mt-3 border border-slate-800 rounded-lg overflow-hidden">
-        <datalist id="check-sku-list">
-          <option v-for="p in products" :key="p._id" :value="p.sku || ''">{{ p.name }}</option>
-        </datalist>
         <datalist id="check-name-list">
           <option v-for="p in products" :key="p._id" :value="p.name">{{ p.sku || '' }}</option>
         </datalist>
@@ -112,7 +109,6 @@
           <thead class="bg-slate-900 text-slate-300">
             <tr>
               <th class="px-2 py-1 text-left w-[32px]">№</th>
-              <th class="px-2 py-1 text-left w-[100px]">Артикул</th>
               <th class="px-2 py-1 text-left">Наименование</th>
               <th class="px-2 py-1 text-right w-[72px]">Кол-во</th>
               <th class="px-2 py-1 text-right w-[96px]">Цена</th>
@@ -125,21 +121,12 @@
               v-for="(item, idx) in draft.items"
               :key="idx"
               class="border-t border-slate-800"
+              draggable="true"
+              @dragstart="onDragStart(idx)"
+              @dragover.prevent
+              @drop="onDrop(idx)"
             >
               <td class="px-2 py-1">{{ idx + 1 }}</td>
-              <td class="px-2 py-1">
-                <input
-                  v-model="item.sku"
-                  type="text"
-                  class="w-full bg-slate-900 border border-slate-800 rounded px-1 py-0.5"
-                  list="check-sku-list"
-                  :data-row="idx"
-                  data-field="sku"
-                  @change="fillItemFromSku(item, idx)"
-                  @blur="fillItemFromSku(item, idx)"
-                  @keydown.enter.prevent="focusRowField(idx, 'qty')"
-                />
-              </td>
               <td class="px-2 py-1">
                 <input
                   v-model="item.name"
@@ -184,7 +171,23 @@
               <td class="px-2 py-1 text-right">
                 <button
                   type="button"
-                  class="px-1 py-0.5 rounded bg-red-700 hover:bg-red-600 text-[10px] text-white"
+                  class="px-1 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px] text-white disabled:opacity-60"
+                  :disabled="idx === 0"
+                  @click="moveItem(idx, -1)"
+                >
+                  ▲
+                </button>
+                <button
+                  type="button"
+                  class="ml-1 px-1 py-0.5 rounded bg-slate-700 hover:bg-slate-600 text-[10px] text-white disabled:opacity-60"
+                  :disabled="idx === draft.items.length - 1"
+                  @click="moveItem(idx, 1)"
+                >
+                  ▼
+                </button>
+                <button
+                  type="button"
+                  class="ml-1 px-1 py-0.5 rounded bg-red-700 hover:bg-red-600 text-[10px] text-white"
                   @click="removeItem(idx)"
                 >
                   ✕
@@ -192,14 +195,14 @@
               </td>
             </tr>
             <tr v-if="!draft.items.length">
-              <td colspan="7" class="px-2 py-3 text-center text-slate-400">
+              <td colspan="6" class="px-2 py-3 text-center text-slate-400">
                 Добавьте строки чека кнопкой ниже.
               </td>
             </tr>
           </tbody>
           <tfoot v-if="draft.items.length">
             <tr class="border-t border-slate-700 bg-slate-900/60">
-              <td colspan="5" class="px-2 py-1 text-right font-medium">Итого:</td>
+              <td colspan="4" class="px-2 py-1 text-right font-medium">Итого:</td>
               <td class="px-2 py-1 text-right font-medium">{{ formatMoney(totalAmount) }}</td>
               <td></td>
             </tr>
@@ -239,10 +242,37 @@
           >
             Печать
           </button>
+          <button
+            v-if="currentCheckId"
+            type="button"
+            class="px-3 py-1 rounded bg-violet-700 hover:bg-violet-600 text-xs text-white disabled:opacity-60"
+            :disabled="sendLoading"
+            @click="sendCheckByEmail"
+          >
+            {{ sendLoading ? 'Отправка...' : 'Отправить на email' }}
+          </button>
         </div>
         <div class="text-right text-[11px]">
           <div v-if="saveError" class="text-red-400">{{ saveError }}</div>
           <div v-if="saveSuccess" class="text-emerald-400">Чек сохранён</div>
+          <div v-if="sendError" class="text-red-400">{{ sendError }}</div>
+          <div v-if="sendSuccess" class="text-emerald-400">Отправлено</div>
+        </div>
+      </div>
+
+      <div v-if="currentCheckId" class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-[11px] text-slate-400 mb-1">Email покупателя</label>
+          <input
+            v-model="buyerEmail"
+            type="email"
+            class="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs"
+          />
+        </div>
+        <div class="md:col-span-2 text-[11px] text-slate-400 flex items-end">
+          <div>
+            Письмо отправится с сохранённым чеком.
+          </div>
         </div>
       </div>
     </div>
@@ -334,7 +364,6 @@ import { useRouter } from 'vue-router';
 import axios from 'axios';
 
 interface CheckItemDraft {
-  sku: string;
   name: string;
   quantity: number;
   price: number;
@@ -370,7 +399,17 @@ const draft = ref<CheckDraft>({
 const currentCheckId = ref<string | null>(null);
 
 const addEmptyItem = () => {
-  draft.value.items.push({ sku: '', name: '', quantity: 1, price: 0, amount: 0 });
+  draft.value.items.push({ name: '', quantity: 1, price: 0, amount: 0 });
+};
+
+const moveItem = async (idx: number, dir: -1 | 1) => {
+  const to = idx + dir;
+  if (to < 0 || to >= draft.value.items.length) return;
+  const items = draft.value.items;
+  const tmp = items[idx];
+  items[idx] = items[to];
+  items[to] = tmp;
+  await focusRowField(to, 'name');
 };
 
 const recomputeItemAmount = (item: CheckItemDraft, idx?: number) => {
@@ -380,7 +419,7 @@ const recomputeItemAmount = (item: CheckItemDraft, idx?: number) => {
 
   if (typeof idx === 'number') {
     const isLast = idx === draft.value.items.length - 1;
-    const hasSomeData = Boolean((item.sku || '').trim() || (item.name || '').trim());
+    const hasSomeData = Boolean((item.name || '').trim());
     if (isLast && hasSomeData) {
       const last = draft.value.items[draft.value.items.length - 1];
       if (last === item) {
@@ -408,7 +447,6 @@ interface ProductLight {
 
 const products = ref<ProductLight[]>([]);
 
-const skuIndex = ref<Map<string, ProductLight>>(new Map());
 const nameIndex = ref<Map<string, ProductLight>>(new Map());
 
 const loadProducts = async () => {
@@ -424,17 +462,9 @@ const loadProducts = async () => {
 
     products.value = normalized;
 
-    const skuMap = new Map<string, ProductLight>();
     const nameMap = new Map<string, ProductLight>();
 
     for (const p of normalized) {
-      const skuNorm = String(p.sku || '')
-        .trim()
-        .replace(/\s+/g, '')
-        .toLowerCase();
-      if (skuNorm) {
-        skuMap.set(skuNorm, p);
-      }
       const nameNorm = String(p.name || '')
         .trim()
         .replace(/\s+/g, ' ')
@@ -443,47 +473,10 @@ const loadProducts = async () => {
         nameMap.set(nameNorm, p);
       }
     }
-
-    skuIndex.value = skuMap;
     nameIndex.value = nameMap;
   } catch {
     products.value = [];
-    skuIndex.value = new Map();
     nameIndex.value = new Map();
-  }
-};
-
-const fillItemFromSku = (item: CheckItemDraft, idx?: number) => {
-  const raw = (item.sku || '').trim();
-  if (!raw || !skuIndex.value.size) return;
-  const norm = raw.replace(/\s+/g, '').toLowerCase();
-  const found = skuIndex.value.get(norm);
-  if (!found) return;
-
-  let changed = false;
-
-  if (!item.name) {
-    item.name = found.name;
-    changed = true;
-  }
-
-  if (!item.price || Number.isNaN(item.price)) {
-    const price = typeof found.lastSalePrice === 'number' ? found.lastSalePrice : 0;
-    item.price = price;
-    changed = true;
-  }
-
-  if (!item.quantity) {
-    item.quantity = 1;
-    changed = true;
-  }
-
-  recomputeItemAmount(item);
-
-  if (typeof idx === 'number') {
-    if (changed) {
-      nextTick(() => focusRowField(idx, 'qty'));
-    }
   }
 };
 
@@ -495,11 +488,6 @@ const fillItemFromName = (item: CheckItemDraft, idx?: number) => {
   if (!found) return;
 
   let changed = false;
-
-  if (!item.sku && found.sku) {
-    item.sku = found.sku;
-    changed = true;
-  }
 
   if (!item.price || Number.isNaN(item.price)) {
     const price = typeof found.lastSalePrice === 'number' ? found.lastSalePrice : 0;
@@ -525,6 +513,7 @@ const fillItemFromName = (item: CheckItemDraft, idx?: number) => {
 const buyerInn = ref('');
 const buyerName = ref('');
 const buyerAddress = ref('');
+const buyerEmail = ref('');
 const lookupLoading = ref(false);
 const lookupError = ref('');
 
@@ -610,6 +599,9 @@ const loadHistory = async () => {
 const saveLoading = ref(false);
 const saveError = ref('');
 const saveSuccess = ref(false);
+const sendLoading = ref(false);
+const sendError = ref('');
+const sendSuccess = ref(false);
 
 const resetDraft = () => {
   draft.value = {
@@ -641,8 +633,10 @@ const saveCheck = async () => {
       shopName: draft.value.shopName || undefined,
       shopAddress: draft.value.shopAddress || undefined,
       shopContacts: draft.value.shopContacts || undefined,
+      buyerInn: buyerInn.value || undefined,
+      buyerName: buyerName.value || undefined,
+      buyerAddress: buyerAddress.value || undefined,
       items: draft.value.items.map((it) => ({
-        sku: it.sku || undefined,
         name: it.name || '',
         quantity: Number(it.quantity) || 0,
         price: Number(it.price) || 0,
@@ -672,7 +666,7 @@ const saveCheck = async () => {
   }
 };
 
-const focusRowField = async (idx: number, field: 'sku' | 'name' | 'qty' | 'price') => {
+const focusRowField = async (idx: number, field: 'name' | 'qty' | 'price') => {
   await nextTick();
   const el = document.querySelector(
     `input[data-row="${idx}"][data-field="${field}"]`,
@@ -688,14 +682,14 @@ const handleRowEnter = async (idx: number) => {
   const isLast = idx === draft.value.items.length - 1;
   if (isLast) {
     const item = draft.value.items[idx];
-    const hasSomeData = Boolean((item.sku || '').trim() || (item.name || '').trim());
+    const hasSomeData = Boolean((item.name || '').trim());
     if (hasSomeData) {
       addEmptyItem();
-      await focusRowField(idx + 1, 'sku');
+      await focusRowField(idx + 1, 'name');
       return;
     }
   }
-  await focusRowField(idx + 1, 'sku');
+  await focusRowField(idx + 1, 'name');
 };
 
 const loadCheckToDraft = async (id: string) => {
@@ -711,7 +705,6 @@ const loadCheckToDraft = async (id: string) => {
       shopAddress: c.shopAddress || '',
       shopContacts: c.shopContacts || '',
       items: (c.items || []).map((it: any) => ({
-        sku: it.sku || '',
         name: it.name || '',
         quantity: Number(it.quantity) || 0,
         price: Number(it.price) || 0,
@@ -744,7 +737,6 @@ const loadDraftFromStorage = () => {
           shopContacts: String(parsed.shopContacts || ''),
           items: Array.isArray(parsed.items)
             ? parsed.items.map((it: any) => ({
-                sku: String(it?.sku || ''),
                 name: String(it?.name || ''),
                 quantity: Number(it?.quantity || 0) || 0,
                 price: Number(it?.price || 0) || 0,
@@ -768,6 +760,7 @@ const loadBuyerFromStorage = () => {
     buyerInn.value = String(parsed.buyerInn || '');
     buyerName.value = String(parsed.buyerName || '');
     buyerAddress.value = String(parsed.buyerAddress || '');
+    buyerEmail.value = String(parsed.buyerEmail || '');
   } catch {
     // ignore
   }
@@ -785,7 +778,6 @@ const persistDraftToStorage = () => {
         shopAddress: draft.value.shopAddress,
         shopContacts: draft.value.shopContacts,
         items: draft.value.items.map((it) => ({
-          sku: it.sku,
           name: it.name,
           quantity: it.quantity,
           price: it.price,
@@ -797,6 +789,26 @@ const persistDraftToStorage = () => {
   }
 };
 
+const dragFromIndex = ref<number | null>(null);
+
+const onDragStart = (idx: number) => {
+  dragFromIndex.value = idx;
+};
+
+const onDrop = async (idx: number) => {
+  const from = dragFromIndex.value;
+  dragFromIndex.value = null;
+  if (from === null) return;
+  if (from === idx) return;
+  if (from < 0 || from >= draft.value.items.length) return;
+  if (idx < 0 || idx >= draft.value.items.length) return;
+
+  const items = draft.value.items;
+  const [moved] = items.splice(from, 1);
+  items.splice(idx, 0, moved);
+  await focusRowField(idx, 'name');
+};
+
 const persistBuyerToStorage = () => {
   try {
     localStorage.setItem(
@@ -805,6 +817,7 @@ const persistBuyerToStorage = () => {
         buyerInn: buyerInn.value,
         buyerName: buyerName.value,
         buyerAddress: buyerAddress.value,
+        buyerEmail: buyerEmail.value,
       }),
     );
   } catch {
@@ -825,7 +838,7 @@ const onKeyDown = (e: KeyboardEvent) => {
     e.preventDefault();
     resetDraft();
     addEmptyItem();
-    nextTick(() => focusRowField(0, 'sku'));
+    nextTick(() => focusRowField(0, 'name'));
   }
 
   if (key === 'p') {
@@ -858,7 +871,30 @@ watch(
   { deep: true },
 );
 
-watch([buyerInn, buyerName, buyerAddress], () => {
+watch([buyerInn, buyerName, buyerAddress, buyerEmail], () => {
   persistBuyerToStorage();
 });
+
+const sendCheckByEmail = async () => {
+  if (!currentCheckId.value) return;
+  const to = buyerEmail.value.trim();
+  if (!to) {
+    sendError.value = 'Укажите email покупателя';
+    sendSuccess.value = false;
+    return;
+  }
+
+  sendLoading.value = true;
+  sendError.value = '';
+  sendSuccess.value = false;
+
+  try {
+    await axios.post(`/api/v1/checks/${currentCheckId.value}/send-email`, { to });
+    sendSuccess.value = true;
+  } catch (e: any) {
+    sendError.value = e?.response?.data?.message || 'Ошибка отправки email';
+  } finally {
+    sendLoading.value = false;
+  }
+};
 </script>

@@ -18,6 +18,9 @@ export interface ICheck extends Document {
   shopName?: string | null; // название магазина в шапке
   shopAddress?: string | null; // адрес
   shopContacts?: string | null; // контакты
+  buyerInn?: string | null;
+  buyerName?: string | null;
+  buyerAddress?: string | null;
   createdBy: Types.ObjectId; // пользователь, создавший чек
   createdAt: Date;
   updatedAt: Date;
@@ -45,6 +48,9 @@ const CheckSchema = new Schema<ICheck>(
     shopName: { type: String },
     shopAddress: { type: String },
     shopContacts: { type: String },
+    buyerInn: { type: String },
+    buyerName: { type: String },
+    buyerAddress: { type: String },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true }

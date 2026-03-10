@@ -43,7 +43,6 @@
         <thead>
           <tr class="bg-gray-100">
             <th class="border border-gray-400 px-2 py-1 text-left w-8">№</th>
-            <th class="border border-gray-400 px-2 py-1 text-left w-24">Артикул</th>
             <th class="border border-gray-400 px-2 py-1 text-left">Наименование</th>
             <th class="border border-gray-400 px-2 py-1 text-right w-16">Кол-во</th>
             <th class="border border-gray-400 px-2 py-1 text-right w-20">Цена</th>
@@ -53,7 +52,6 @@
         <tbody>
           <tr v-for="(item, idx) in check.items" :key="idx" :class="idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'">
             <td class="border border-gray-300 px-2 py-1 align-top">{{ idx + 1 }}</td>
-            <td class="border border-gray-300 px-2 py-1 align-top">{{ item.sku || '' }}</td>
             <td class="border border-gray-300 px-2 py-1 align-top">{{ item.name }}</td>
             <td class="border border-gray-300 px-2 py-1 text-right align-top">{{ formatNumber(item.quantity) }}</td>
             <td class="border border-gray-300 px-2 py-1 text-right align-top">{{ formatMoney(item.price) }}</td>
@@ -62,7 +60,7 @@
         </tbody>
         <tfoot>
           <tr>
-            <td class="border border-gray-400 px-2 py-2 text-right font-semibold" colspan="5">Итого к оплате:</td>
+            <td class="border border-gray-400 px-2 py-2 text-right font-semibold" colspan="4">Итого к оплате:</td>
             <td class="border border-gray-400 px-2 py-2 text-right font-semibold">{{ formatMoney(check.totalAmount) }}</td>
           </tr>
         </tfoot>

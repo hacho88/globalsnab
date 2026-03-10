@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { AuthRequest, authMiddleware } from '../middlewares/auth';
 import { CheckModel } from '../models/Check';
 import { findOrgByInn } from '../services/dadata.service';
+import nodemailer from 'nodemailer';
+import { env } from '../config/env';
 
 export const checksRouter = Router();
 
@@ -101,8 +103,107 @@ checksRouter.post('/', async (req: AuthRequest, res) => {
     shopName: body.shopName || null,
     shopAddress: body.shopAddress || null,
     shopContacts: body.shopContacts || null,
+    buyerInn: body.buyerInn || null,
+    buyerName: body.buyerName || null,
+    buyerAddress: body.buyerAddress || null,
     createdBy: req.user.id,
   });
 
   return res.status(201).json({ check: doc });
+});
+
+checksRouter.post('/:id/send-email', async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  const { to } = req.body as { to?: string };
+
+  const email = String(to || '').trim();
+  if (!email) {
+    return res.status(400).json({ message: 'email is required' });
+  }
+
+  const host = (env.smtpHost || '').trim();
+  const port = Number(env.smtpPort || 0);
+  const user = (env.smtpUser || '').trim();
+  const pass = (env.smtpPass || '').trim();
+  const from = (env.smtpFrom || '').trim();
+
+  if (!host || !port || !user || !pass || !from) {
+    return res.status(500).json({ message: 'SMTP is not configured' });
+  }
+
+  const secure = port === 465;
+
+  const check = await CheckModel.findById(id).lean();
+  if (!check) {
+    return res.status(404).json({ message: 'Чек не найден' });
+  }
+
+  const itemsHtml = (check.items || [])
+    .map((it: any, idx: number) => {
+      const qty = Number(it.quantity) || 0;
+      const price = Number(it.price) || 0;
+      const amount = Number(it.amount) || qty * price;
+      return `
+        <tr>
+          <td style="padding:6px;border:1px solid #ddd;">${idx + 1}</td>
+          <td style="padding:6px;border:1px solid #ddd;">${String(it.name || '')}</td>
+          <td style="padding:6px;border:1px solid #ddd;text-align:right;">${qty}</td>
+          <td style="padding:6px;border:1px solid #ddd;text-align:right;">${price.toFixed(2)}</td>
+          <td style="padding:6px;border:1px solid #ddd;text-align:right;">${amount.toFixed(2)}</td>
+        </tr>`;
+    })
+    .join('');
+
+  const subject = `Товарный чек №${check.number}`;
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;font-size:14px;color:#111;">
+      <h2 style="margin:0 0 8px;">Товарный чек №${check.number}</h2>
+      <div style="margin:0 0 12px;">Дата: ${new Date(check.date).toLocaleString('ru-RU')}</div>
+      ${check.shopName ? `<div style="margin:0 0 4px;">${String(check.shopName)}</div>` : ''}
+      ${check.shopAddress ? `<div style="margin:0 0 4px;">${String(check.shopAddress)}</div>` : ''}
+      ${check.shopContacts ? `<div style="margin:0 0 12px;">${String(check.shopContacts)}</div>` : ''}
+      <table style="border-collapse:collapse;width:100%;margin:0 0 12px;">
+        <thead>
+          <tr>
+            <th style="padding:6px;border:1px solid #ddd;text-align:left;">№</th>
+            <th style="padding:6px;border:1px solid #ddd;text-align:left;">Наименование</th>
+            <th style="padding:6px;border:1px solid #ddd;text-align:right;">Кол-во</th>
+            <th style="padding:6px;border:1px solid #ddd;text-align:right;">Цена</th>
+            <th style="padding:6px;border:1px solid #ddd;text-align:right;">Сумма</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsHtml}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td colspan="4" style="padding:6px;border:1px solid #ddd;text-align:right;font-weight:bold;">Итого:</td>
+            <td style="padding:6px;border:1px solid #ddd;text-align:right;font-weight:bold;">${Number(check.totalAmount || 0).toFixed(2)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      ${check.comment ? `<div>Комментарий: ${String(check.comment)}</div>` : ''}
+    </div>
+  `;
+
+  const transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: { user, pass },
+  });
+
+  try {
+    await transporter.sendMail({
+      from,
+      to: email,
+      subject,
+      html,
+    });
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('Error sending check email', err);
+    return res.status(500).json({ message: 'Ошибка отправки email' });
+  }
 });
