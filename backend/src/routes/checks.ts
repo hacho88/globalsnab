@@ -33,9 +33,14 @@ checksRouter.get('/org-by-inn', async (req: AuthRequest, res) => {
 
 // Список чеков (история) с фильтром по дате
 checksRouter.get('/', async (req: AuthRequest, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
   const { from, to } = req.query as { from?: string; to?: string };
 
   const filter: any = {};
+  filter.createdBy = req.user.id;
   if (from || to) {
     filter.date = {};
     if (from) filter.date.$gte = new Date(from);
@@ -48,12 +53,75 @@ checksRouter.get('/', async (req: AuthRequest, res) => {
 
 // Получить чек по id
 checksRouter.get('/:id', async (req: AuthRequest, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
   const { id } = req.params;
-  const check = await CheckModel.findById(id);
+  const check = await CheckModel.findOne({ _id: id, createdBy: req.user.id });
   if (!check) {
     return res.status(404).json({ message: 'Чек не найден' });
   }
   return res.json({ check });
+});
+
+// Обновить существующий чек
+checksRouter.put('/:id', async (req: AuthRequest, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const { id } = req.params;
+  const body = req.body as any;
+
+  const check = await CheckModel.findOne({ _id: id, createdBy: req.user.id });
+  if (!check) {
+    return res.status(404).json({ message: 'Чек не найден' });
+  }
+
+  const date = body.date ? new Date(body.date) : check.date;
+  const items = Array.isArray(body.items) ? body.items : [];
+
+  let totalAmount = 0;
+  const normalizedItems = items
+    .filter((it: any) => it && (it.name || it.sku))
+    .map((it: any) => {
+      const qty = Number(it.quantity) || 0;
+      const price = Number(it.price) || 0;
+      const amount = qty * price;
+      totalAmount += amount;
+      return {
+        product: it.product || null,
+        sku: typeof it.sku === 'string' ? it.sku : it.productSku || null,
+        name: String(it.name || ''),
+        quantity: qty,
+        price,
+        amount,
+      };
+    });
+
+  check.number = String(body.number || check.number);
+  check.date = date;
+  check.items = normalizedItems as any;
+  check.totalAmount = totalAmount;
+  check.comment = body.comment || null;
+  check.shopName = body.shopName || null;
+  check.shopAddress = body.shopAddress || null;
+  check.shopContacts = body.shopContacts || null;
+  check.buyerInn = body.buyerInn || null;
+  check.buyerName = body.buyerName || null;
+  check.buyerAddress = body.buyerAddress || null;
+
+  try {
+    await check.save();
+    return res.json({ check });
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ message: 'Номер чека уже используется' });
+    }
+    console.error('Error updating check', err);
+    return res.status(500).json({ message: 'Ошибка при обновлении чека' });
+  }
 });
 
 // Создать новый чек (автонумерация)
@@ -67,7 +135,7 @@ checksRouter.post('/', async (req: AuthRequest, res) => {
   // Автонумерация: берём последний чек и увеличиваем номер как целое число
   let numberStr = body.number as string | undefined;
   if (!numberStr) {
-    const last = await CheckModel.findOne().sort({ createdAt: -1 }).lean();
+    const last = await CheckModel.findOne({ createdBy: req.user.id }).sort({ createdAt: -1 }).lean();
     const lastNum = last ? parseInt(String(last.number), 10) || 0 : 0;
     numberStr = String(lastNum + 1);
   }
@@ -94,22 +162,30 @@ checksRouter.post('/', async (req: AuthRequest, res) => {
       };
     });
 
-  const doc = await CheckModel.create({
-    number: numberStr,
-    date,
-    items: normalizedItems,
-    totalAmount,
-    comment: body.comment || null,
-    shopName: body.shopName || null,
-    shopAddress: body.shopAddress || null,
-    shopContacts: body.shopContacts || null,
-    buyerInn: body.buyerInn || null,
-    buyerName: body.buyerName || null,
-    buyerAddress: body.buyerAddress || null,
-    createdBy: req.user.id,
-  });
+  try {
+    const doc = await CheckModel.create({
+      number: numberStr,
+      date,
+      items: normalizedItems,
+      totalAmount,
+      comment: body.comment || null,
+      shopName: body.shopName || null,
+      shopAddress: body.shopAddress || null,
+      shopContacts: body.shopContacts || null,
+      buyerInn: body.buyerInn || null,
+      buyerName: body.buyerName || null,
+      buyerAddress: body.buyerAddress || null,
+      createdBy: req.user.id,
+    });
 
-  return res.status(201).json({ check: doc });
+    return res.status(201).json({ check: doc });
+  } catch (err: any) {
+    if (err?.code === 11000) {
+      return res.status(409).json({ message: 'Номер чека уже используется' });
+    }
+    console.error('Error creating check', err);
+    return res.status(500).json({ message: 'Ошибка при сохранении чека' });
+  }
 });
 
 checksRouter.post('/:id/send-email', async (req: AuthRequest, res) => {

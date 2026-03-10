@@ -370,6 +370,16 @@ const draft = ref<CheckDraft>({
 });
 
 const currentCheckId = ref<string | null>(null);
+const loadedCheckNumber = ref<string | null>(null);
+const loadedItemsSignature = ref<string | null>(null);
+
+const computeItemsSignature = (items: CheckItemDraft[]) => {
+  const names = items
+    .map((it) => String(it?.name || '').trim())
+    .filter((n) => n);
+  names.sort();
+  return names.join('\u0000');
+};
 
 const addEmptyItem = () => {
   draft.value.items.push({ name: '', quantity: 1, price: 0, amount: 0 });
@@ -585,6 +595,8 @@ const resetDraft = () => {
   saveError.value = '';
   saveSuccess.value = false;
   currentCheckId.value = null;
+  loadedCheckNumber.value = null;
+  loadedItemsSignature.value = null;
 };
 
 const saveCheck = async () => {
@@ -612,8 +624,25 @@ const saveCheck = async () => {
       })),
     };
 
-    const res = await axios.post('/api/v1/checks', payload);
-    if (res.status === 201) {
+    const currentSig = computeItemsSignature(draft.value.items);
+    const isExisting = Boolean(currentCheckId.value);
+    const compositionChanged =
+      isExisting && loadedItemsSignature.value !== null && currentSig !== loadedItemsSignature.value;
+
+    if (compositionChanged) {
+      const newNumber = String(draft.value.number || '').trim();
+      const oldNumber = String(loadedCheckNumber.value || '').trim();
+      if (!newNumber || newNumber === oldNumber) {
+        saveError.value = 'Изменён список товаров — укажите новый номер чека';
+        return;
+      }
+    }
+
+    const res = isExisting && !compositionChanged
+      ? await axios.put(`/api/v1/checks/${currentCheckId.value}`, payload)
+      : await axios.post('/api/v1/checks', payload);
+
+    if (res.status === 201 || res.status === 200) {
       saveSuccess.value = true;
       const saved = res.data?.check;
       if (saved) {
@@ -622,6 +651,8 @@ const saveCheck = async () => {
         }
         if (saved._id) {
           currentCheckId.value = saved._id as string;
+          loadedCheckNumber.value = saved.number ? String(saved.number) : draft.value.number;
+          loadedItemsSignature.value = computeItemsSignature(draft.value.items);
         }
       }
       await loadHistory();
@@ -629,7 +660,11 @@ const saveCheck = async () => {
       saveError.value = 'Ошибка при сохранении чека';
     }
   } catch (e: any) {
-    saveError.value = e?.response?.data?.message || 'Ошибка при сохранении чека';
+    if (e?.response?.status === 409) {
+      saveError.value = e?.response?.data?.message || 'Номер чека уже используется';
+    } else {
+      saveError.value = e?.response?.data?.message || 'Ошибка при сохранении чека';
+    }
   } finally {
     saveLoading.value = false;
   }
@@ -681,6 +716,8 @@ const loadCheckToDraft = async (id: string) => {
       })),
     };
     currentCheckId.value = c._id as string;
+    loadedCheckNumber.value = String(c.number || '');
+    loadedItemsSignature.value = computeItemsSignature(draft.value.items);
   } catch {
     // игнорируем ошибку загрузки конкретного чека
   }

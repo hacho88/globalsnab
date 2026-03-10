@@ -57,6 +57,6 @@ const CheckSchema = new Schema<ICheck>(
 );
 
 CheckSchema.index({ date: -1 });
-CheckSchema.index({ number: 1 });
+CheckSchema.index({ createdBy: 1, number: 1 }, { unique: true });
 
 export const CheckModel = mongoose.model<ICheck>('Check', CheckSchema);
