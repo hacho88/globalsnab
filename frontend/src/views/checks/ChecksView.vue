@@ -242,37 +242,10 @@
           >
             Печать
           </button>
-          <button
-            v-if="currentCheckId"
-            type="button"
-            class="px-3 py-1 rounded bg-violet-700 hover:bg-violet-600 text-xs text-white disabled:opacity-60"
-            :disabled="sendLoading"
-            @click="sendCheckByEmail"
-          >
-            {{ sendLoading ? 'Отправка...' : 'Отправить на email' }}
-          </button>
         </div>
         <div class="text-right text-[11px]">
           <div v-if="saveError" class="text-red-400">{{ saveError }}</div>
           <div v-if="saveSuccess" class="text-emerald-400">Чек сохранён</div>
-          <div v-if="sendError" class="text-red-400">{{ sendError }}</div>
-          <div v-if="sendSuccess" class="text-emerald-400">Отправлено</div>
-        </div>
-      </div>
-
-      <div v-if="currentCheckId" class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-        <div>
-          <label class="block text-[11px] text-slate-400 mb-1">Email покупателя</label>
-          <input
-            v-model="buyerEmail"
-            type="email"
-            class="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs"
-          />
-        </div>
-        <div class="md:col-span-2 text-[11px] text-slate-400 flex items-end">
-          <div>
-            Письмо отправится с сохранённым чеком.
-          </div>
         </div>
       </div>
     </div>
@@ -513,7 +486,6 @@ const fillItemFromName = (item: CheckItemDraft, idx?: number) => {
 const buyerInn = ref('');
 const buyerName = ref('');
 const buyerAddress = ref('');
-const buyerEmail = ref('');
 const lookupLoading = ref(false);
 const lookupError = ref('');
 
@@ -599,9 +571,6 @@ const loadHistory = async () => {
 const saveLoading = ref(false);
 const saveError = ref('');
 const saveSuccess = ref(false);
-const sendLoading = ref(false);
-const sendError = ref('');
-const sendSuccess = ref(false);
 
 const resetDraft = () => {
   draft.value = {
@@ -760,7 +729,6 @@ const loadBuyerFromStorage = () => {
     buyerInn.value = String(parsed.buyerInn || '');
     buyerName.value = String(parsed.buyerName || '');
     buyerAddress.value = String(parsed.buyerAddress || '');
-    buyerEmail.value = String(parsed.buyerEmail || '');
   } catch {
     // ignore
   }
@@ -817,7 +785,6 @@ const persistBuyerToStorage = () => {
         buyerInn: buyerInn.value,
         buyerName: buyerName.value,
         buyerAddress: buyerAddress.value,
-        buyerEmail: buyerEmail.value,
       }),
     );
   } catch {
@@ -871,30 +838,7 @@ watch(
   { deep: true },
 );
 
-watch([buyerInn, buyerName, buyerAddress, buyerEmail], () => {
+watch([buyerInn, buyerName, buyerAddress], () => {
   persistBuyerToStorage();
 });
-
-const sendCheckByEmail = async () => {
-  if (!currentCheckId.value) return;
-  const to = buyerEmail.value.trim();
-  if (!to) {
-    sendError.value = 'Укажите email покупателя';
-    sendSuccess.value = false;
-    return;
-  }
-
-  sendLoading.value = true;
-  sendError.value = '';
-  sendSuccess.value = false;
-
-  try {
-    await axios.post(`/api/v1/checks/${currentCheckId.value}/send-email`, { to });
-    sendSuccess.value = true;
-  } catch (e: any) {
-    sendError.value = e?.response?.data?.message || 'Ошибка отправки email';
-  } finally {
-    sendLoading.value = false;
-  }
-};
 </script>
