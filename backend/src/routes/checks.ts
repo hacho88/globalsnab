@@ -31,6 +31,30 @@ checksRouter.get('/org-by-inn', async (req: AuthRequest, res) => {
   }
 });
 
+// Удалить чек
+checksRouter.delete('/:id', async (req: AuthRequest, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const { id } = req.params;
+  const deleted = await CheckModel.findOneAndDelete({ _id: id, createdBy: req.user.id }).lean();
+  if (!deleted) {
+    return res.status(404).json({ message: 'Чек не найден' });
+  }
+  return res.json({ ok: true });
+});
+
+// Удалить все чеки текущего пользователя
+checksRouter.delete('/', async (req: AuthRequest, res) => {
+  if (!req.user) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  const result = await CheckModel.deleteMany({ createdBy: req.user.id });
+  return res.json({ ok: true, deletedCount: result.deletedCount || 0 });
+});
+
 // Список чеков (история) с фильтром по дате
 checksRouter.get('/', async (req: AuthRequest, res) => {
   if (!req.user) {
@@ -209,7 +233,7 @@ checksRouter.post('/:id/send-email', async (req: AuthRequest, res) => {
 
   const secure = port === 465;
 
-  const check = await CheckModel.findById(id).lean();
+  const check = await CheckModel.findOne({ _id: id, createdBy: req.user?.id }).lean();
   if (!check) {
     return res.status(404).json({ message: 'Чек не найден' });
   }

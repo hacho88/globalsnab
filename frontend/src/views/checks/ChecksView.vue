@@ -254,14 +254,24 @@
     <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs text-slate-200 space-y-3">
       <div class="flex items-center justify-between gap-2">
         <div class="font-semibold text-sm">История чеков</div>
-        <button
-          type="button"
-          class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-[11px] text-white disabled:opacity-60"
-          :disabled="historyLoading"
-          @click="loadHistory"
-        >
-          {{ historyLoading ? 'Обновление...' : 'Обновить' }}
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="px-2 py-1 rounded bg-red-700 hover:bg-red-600 text-[11px] text-white disabled:opacity-60"
+            :disabled="historyLoading || deleteAllLoading || !checks.length"
+            @click="deleteAllChecks"
+          >
+            {{ deleteAllLoading ? 'Удаление...' : 'Удалить все' }}
+          </button>
+          <button
+            type="button"
+            class="px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-[11px] text-white disabled:opacity-60"
+            :disabled="historyLoading"
+            @click="loadHistory"
+          >
+            {{ historyLoading ? 'Обновление...' : 'Обновить' }}
+          </button>
+        </div>
       </div>
 
       <div class="flex flex-wrap gap-2 items-end">
@@ -293,6 +303,7 @@
       </div>
 
       <div v-if="historyError" class="text-xs text-red-400">{{ historyError }}</div>
+      <div v-if="deleteError" class="text-xs text-red-400">{{ deleteError }}</div>
 
       <div class="overflow-x-auto max-h-[320px] mt-2 border border-slate-800 rounded-lg">
         <table class="min-w-full text-[11px]">
@@ -302,6 +313,7 @@
               <th class="px-2 py-1 text-left">№</th>
               <th class="px-2 py-1 text-left">Комментарий</th>
               <th class="px-2 py-1 text-right">Сумма</th>
+              <th class="px-2 py-1 text-right w-[44px]"></th>
             </tr>
           </thead>
           <tbody>
@@ -315,9 +327,19 @@
               <td class="px-2 py-1">{{ c.number }}</td>
               <td class="px-2 py-1 truncate max-w-[160px]" :title="c.comment">{{ c.comment }}</td>
               <td class="px-2 py-1 text-right">{{ formatMoney(c.totalAmount) }}</td>
+              <td class="px-2 py-1 text-right">
+                <button
+                  type="button"
+                  class="px-1 py-0.5 rounded bg-red-700 hover:bg-red-600 text-[10px] text-white disabled:opacity-60"
+                  :disabled="deleteOneLoadingId === c._id || deleteAllLoading"
+                  @click.stop="deleteOneCheck(c._id)"
+                >
+                  {{ deleteOneLoadingId === c._id ? '...' : '✕' }}
+                </button>
+              </td>
             </tr>
             <tr v-if="!filteredChecks.length && !historyLoading">
-              <td colspan="4" class="px-2 py-3 text-center text-slate-400">Чеки ещё не созданы.</td>
+              <td colspan="5" class="px-2 py-3 text-center text-slate-400">Чеки ещё не созданы.</td>
             </tr>
           </tbody>
         </table>
@@ -409,6 +431,42 @@ const recomputeItemAmount = (item: CheckItemDraft, idx?: number) => {
         addEmptyItem();
       }
     }
+  }
+};
+
+const deleteOneCheck = async (id: string) => {
+  if (!id) return;
+  if (!confirm('Удалить чек?')) return;
+  deleteError.value = '';
+  deleteOneLoadingId.value = id;
+  try {
+    await axios.delete(`/api/v1/checks/${id}`);
+    if (currentCheckId.value === id) {
+      resetDraft();
+      addEmptyItem();
+    }
+    await loadHistory();
+  } catch (e: any) {
+    deleteError.value = e?.response?.data?.message || 'Ошибка удаления чека';
+  } finally {
+    deleteOneLoadingId.value = null;
+  }
+};
+
+const deleteAllChecks = async () => {
+  if (!checks.value.length) return;
+  if (!confirm('Удалить все чеки из истории?')) return;
+  deleteError.value = '';
+  deleteAllLoading.value = true;
+  try {
+    await axios.delete('/api/v1/checks');
+    resetDraft();
+    addEmptyItem();
+    await loadHistory();
+  } catch (e: any) {
+    deleteError.value = e?.response?.data?.message || 'Ошибка удаления чеков';
+  } finally {
+    deleteAllLoading.value = false;
   }
 };
 
@@ -536,6 +594,10 @@ const historyTo = ref<string>('');
 const historySearch = ref<string>('');
 const historyLoading = ref(false);
 const historyError = ref('');
+
+const deleteAllLoading = ref(false);
+const deleteOneLoadingId = ref<string | null>(null);
+const deleteError = ref('');
 
 const filteredChecks = computed(() => {
   const q = historySearch.value.trim().toLowerCase();
